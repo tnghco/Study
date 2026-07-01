@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:padding="20dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <TextView
+        android:id="@+id/statusText"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="오늘 강의 0/30초" />
+
+    <TextView
+        android:id="@+id/helpText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="갤러리에서 강의 영상을 선택하고 앱 안에서 30초 재생하면 YouTube가 허용됩니다." />
+
+    <Button
+        android:id="@+id/pickVideoButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="강의 영상 선택" />
+
+    <Button
+        android:id="@+id/accessibilityButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="YouTube 차단 권한 켜기" />
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/playerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="12dp"
+        app:use_controller="true"
+        app:show_timeout="3000" />
+
+</LinearLayout>

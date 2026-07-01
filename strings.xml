@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">StudyGate</string>
+    <string name="accessibility_description">StudyGate는 오늘 강의 영상 30초 시청 전 YouTube 앱이 열리면 차단 화면으로 돌아가게 합니다. 화면 내용은 읽지 않고, YouTube 실행 여부만 감지합니다.</string>
+</resources>
