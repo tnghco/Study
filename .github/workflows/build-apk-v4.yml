@@ -1,0 +1,271 @@
+name: Build StudyGate APK V4 Instagram Browser
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout files
+        uses: actions/checkout@v4
+
+      - name: Rebuild Android project folders
+        run: |
+          rm -rf app
+          mkdir -p app/src/main/java/com/example/studygate
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/xml
+
+          cp AndroidManifest.xml app/src/main/AndroidManifest.xml
+          cp MainActivity.kt app/src/main/java/com/example/studygate/MainActivity.kt
+          cp BlockedActivity.kt app/src/main/java/com/example/studygate/BlockedActivity.kt
+          cp StudyPrefs.kt app/src/main/java/com/example/studygate/StudyPrefs.kt
+
+          cp activity_main.xml app/src/main/res/layout/activity_main.xml
+          cp activity_blocked.xml app/src/main/res/layout/activity_blocked.xml
+          cp styles.xml app/src/main/res/values/styles.xml
+
+          sed -i 's/android:label="StudyGate"/android:label="StudyGate V4"/' app/src/main/AndroidManifest.xml
+
+          cat > app/src/main/java/com/example/studygate/YouTubeBlockAccessibilityService.kt <<'KOTLIN'
+          package com.example.studygate
+
+          import android.accessibilityservice.AccessibilityService
+          import android.content.Intent
+          import android.view.accessibility.AccessibilityEvent
+          import android.view.accessibility.AccessibilityNodeInfo
+
+          class YouTubeBlockAccessibilityService : AccessibilityService() {
+              private var lastBlockAt = 0L
+
+              private val blockedAppPackages = setOf(
+                  "com.google.android.youtube",   // YouTube
+                  "com.instagram.android"         // Instagram
+              )
+
+              private val browserPackages = setOf(
+                  "com.android.chrome",              // Chrome
+                  "com.chrome.beta",
+                  "com.chrome.dev",
+                  "com.sec.android.app.sbrowser",   // Samsung Internet
+                  "org.mozilla.firefox",             // Firefox
+                  "org.mozilla.firefox_beta",
+                  "com.microsoft.emmx",              // Microsoft Edge
+                  "com.brave.browser",               // Brave
+                  "com.opera.browser",               // Opera
+                  "com.opera.mini.native",
+                  "com.duckduckgo.mobile.android",   // DuckDuckGo
+                  "com.vivaldi.browser",             // Vivaldi
+                  "com.naver.whale",                 // Naver Whale
+                  "com.android.browser"              // old stock browser
+              )
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+                  if (StudyPrefs.isUnlocked(this)) return
+
+                  val pkg = event?.packageName?.toString() ?: return
+                  val shouldBlock = when {
+                      pkg in blockedAppPackages -> true
+                      pkg in browserPackages -> looksLikeBlockedWebsite(event)
+                      else -> false
+                  }
+                  if (!shouldBlock) return
+
+                  val now = System.currentTimeMillis()
+                  if (now - lastBlockAt < 1500) return
+                  lastBlockAt = now
+
+                  performGlobalAction(GLOBAL_ACTION_HOME)
+                  val intent = Intent(this, BlockedActivity::class.java).apply {
+                      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                  }
+                  startActivity(intent)
+              }
+
+              private fun looksLikeBlockedWebsite(event: AccessibilityEvent): Boolean {
+                  val eventText = buildString {
+                      append(event.text?.joinToString(" ") ?: "")
+                      append(' ')
+                      append(event.contentDescription ?: "")
+                  }
+                  if (containsBlockedSiteText(eventText)) return true
+
+                  val root = rootInActiveWindow ?: return false
+                  return nodeContainsBlockedSiteText(root, 0)
+              }
+
+              private fun nodeContainsBlockedSiteText(node: AccessibilityNodeInfo?, depth: Int): Boolean {
+                  if (node == null || depth > 8) return false
+
+                  if (containsBlockedSiteText(node.text?.toString())) return true
+                  if (containsBlockedSiteText(node.contentDescription?.toString())) return true
+                  if (containsBlockedSiteText(node.viewIdResourceName?.toString())) return true
+
+                  for (i in 0 until node.childCount) {
+                      if (nodeContainsBlockedSiteText(node.getChild(i), depth + 1)) return true
+                  }
+                  return false
+              }
+
+              private fun containsBlockedSiteText(value: String?): Boolean {
+                  val text = value?.lowercase() ?: return false
+                  return text.contains("youtube") ||
+                      text.contains("youtu.be") ||
+                      text.contains("m.youtube.com") ||
+                      text.contains("youtube.com") ||
+                      text.contains("instagram.com") ||
+                      text.contains("www.instagram.com")
+              }
+
+              override fun onInterrupt() = Unit
+          }
+          KOTLIN
+
+          cat > app/src/main/java/com/example/studygate/BlockedActivity.kt <<'KOTLIN'
+          package com.example.studygate
+
+          import android.content.Intent
+          import android.os.Bundle
+          import android.widget.Button
+          import android.widget.TextView
+          import androidx.activity.ComponentActivity
+
+          class BlockedActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_blocked)
+                  updateMessage()
+
+                  findViewById<Button>(R.id.goStudyButton).setOnClickListener {
+                      startActivity(Intent(this, MainActivity::class.java))
+                      finish()
+                  }
+              }
+
+              private fun updateMessage() {
+                  val remaining = (StudyPrefs.TARGET_SECONDS - StudyPrefs.watchedSeconds(this)).coerceAtLeast(0)
+                  val min = remaining / 60
+                  val sec = remaining % 60
+                  findViewById<TextView>(R.id.blockedText).text =
+                      "남은 강의 시청 시간: ${min}분 ${sec}초\n강의 영상을 30초 시청하면 YouTube, Instagram, 브라우저 YouTube가 허용돼요."
+              }
+          }
+          KOTLIN
+
+          cat > app/src/main/res/xml/accessibility_service_config.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+              android:canRetrieveWindowContent="true"
+              android:description="@string/accessibility_description"
+              android:isAccessibilityTool="false"
+              android:notificationTimeout="100"
+              android:packageNames="com.google.android.youtube,com.instagram.android,com.android.chrome,com.chrome.beta,com.chrome.dev,com.sec.android.app.sbrowser,org.mozilla.firefox,org.mozilla.firefox_beta,com.microsoft.emmx,com.brave.browser,com.opera.browser,com.opera.mini.native,com.duckduckgo.mobile.android,com.vivaldi.browser,com.naver.whale,com.android.browser" />
+          XML
+
+          cat > app/src/main/res/values/strings.xml <<'XML'
+          <resources>
+              <string name="app_name">StudyGate V4</string>
+              <string name="accessibility_description">StudyGate V4는 오늘 강의 영상 30초 시청 전 YouTube, Instagram, 브라우저의 YouTube/Instagram 페이지를 감지하면 차단 화면으로 돌아가게 합니다. 브라우저 주소나 화면 텍스트는 차단 대상 확인에만 사용됩니다.</string>
+          </resources>
+          XML
+
+          sed -i 's/아직 YouTube 잠금 해제 전입니다/아직 잠금 해제 전입니다/' app/src/main/res/layout/activity_blocked.xml
+          sed -i 's/강의 영상을 30초 시청하면 오늘은 YouTube를 볼 수 있어요./강의 영상을 30초 시청하면 오늘은 YouTube와 Instagram을 볼 수 있어요./' app/src/main/res/layout/activity_blocked.xml
+          sed -i 's/오늘 YouTube 잠금 해제 완료/오늘 잠금 해제 완료/' app/src/main/java/com/example/studygate/MainActivity.kt
+          sed -i 's/YouTube가 허용됩니다/YouTube와 Instagram이 허용됩니다/' app/src/main/res/layout/activity_main.xml
+          sed -i 's/YouTube 차단 권한 켜기/차단 권한 켜기/' app/src/main/res/layout/activity_main.xml
+
+          cat > settings.gradle.kts <<'EOF_SETTINGS'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "StudyGate"
+          include(":app")
+          EOF_SETTINGS
+
+          cat > build.gradle.kts <<'EOF_ROOT'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF_ROOT
+
+          cat > app/build.gradle.kts <<'EOF_APP'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.example.studygate"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "com.tnghco.studygatev4"
+                  minSdk = 23
+                  targetSdk = 35
+                  versionCode = 4
+                  versionName = "1.0-v4"
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.activity:activity-ktx:1.9.0")
+              implementation("androidx.media3:media3-exoplayer:1.3.1")
+              implementation("androidx.media3:media3-ui:1.3.1")
+          }
+          EOF_APP
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Build APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: StudyGate-v4-instagram-browser-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
